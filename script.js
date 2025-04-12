@@ -113,11 +113,11 @@
 // Initialize fragments on load
 // createFragments();
 
-// Set the dimensions and margins of the graph
-// Set the dimensions and margins of the graph
+/// Set the dimensions and margins of the graph
 const margin = { top: 40, right: 150, bottom: 50, left: 50 };
-const width = 800 - margin.left - margin.right; // Reduce the width
-const height = 400 - margin.top - margin.bottom; // Reduce the height
+const width = 800 - margin.left - margin.right;
+const height = 400 - margin.top - margin.bottom;
+
 // Create SVG container
 const svg = d3.select("#chart")
     .append("svg")
@@ -138,102 +138,80 @@ const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
 
 // Load and process the data
 d3.csv("newMissing.csv").then(data => {
-    // Parse dates and group by facility and date
-    const StateData = d3.group(data, d => d["StateResidence"]);
+    console.log("Raw data:", data); // Debugging: Log raw data
 
-    // Prepare data for each facility
-    const facilities = Array.from(StateData, ([facility, records]) => {
+    const dateParser = d3.timeParse("%m/%d/%Y");
+
+    // Filter and process the data
+    const validData = data
+        .filter(d => d["Facility"] && d["DataDisappeared"]) // Ensure required fields are present
+        .map(d => ({
+            facility: d["Facility"],
+            date: dateParser(d["DataDisappeared"]),
+        }))
+        .filter(d => d.date); // Ensure valid dates
+
+    console.log("Valid data:", validData); // Debugging: Log valid data
+
+    // Group data by facility and date
+    const groupedData = d3.group(validData, d => d.facility);
+
+    console.log("Grouped data:", groupedData); // Debugging: Log grouped data
+
+    // Prepare data for plotting
+    const facilities = Array.from(groupedData, ([facility, records]) => {
         const dateCounts = d3.rollup(
             records,
             v => v.length,
-            d => d3.timeDay.floor(d3.timeParse("%m/%d/%Y")(d["DateDisappered"]))
+            d => d.date
         );
 
         const cumulativeData = Array.from(dateCounts, ([date, count]) => ({
             date: date,
-            count: count
+            count: count,
         }))
             .sort((a, b) => a.date - b.date)
             .map((d, i, arr) => ({
                 date: d.date,
-                cumulativeCount: arr.slice(0, i + 1).reduce((sum, curr) => sum + curr.count, 0)
+                cumulativeCount: arr.slice(0, i + 1).reduce((sum, curr) => sum + curr.count, 0),
             }));
+
+        console.log(`Cumulative data for ${facility}:`, cumulativeData); // Debugging: Log cumulative data
 
         return { facility, cumulativeData };
     });
 
+    console.log("Facilities data:", facilities); // Debugging: Log facilities data
+
     // Create scales
-    const xCumulative = d3.scaleTime()
+    const xScale = d3.scaleTime()
         .domain([
             d3.min(facilities, f => d3.min(f.cumulativeData, d => d.date)),
-            d3.max(facilities, f => d3.max(f.cumulativeData, d => d.date))
+            d3.max(facilities, f => d3.max(f.cumulativeData, d => d.date)),
         ])
         .range([0, width]);
 
-    const yCumulative = d3.scaleLinear()
+    const yScale = d3.scaleLinear()
         .domain([0, d3.max(facilities, f => d3.max(f.cumulativeData, d => d.cumulativeCount))])
         .range([height, 0]);
-    // Create a new SVG container for the cumulative graph
-    const svgCumulative = d3.select("#chart")
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
 
+    console.log("xScale domain:", xScale.domain()); // Debugging: Log xScale domain
+    console.log("yScale domain:", yScale.domain()); // Debugging: Log yScale domain
 
-    // Add X axis
-    svgCumulative.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(xCumulative))
-        .selectAll("text")
-        .style("text-anchor", "end")
-        .attr("dx", "-.8em")
-        .attr("dy", ".15em")
-        .attr("transform", "rotate(-45)");
-
-    // Add Y axis
-    svgCumulative.append("g")
-        .call(d3.axisLeft(yCumulative));
-
-    // Add X axis label
-    svgCumulative.append("text")
-        .attr("class", "axis-label")
-        .attr("text-anchor", "middle")
-        .attr("x", width / 2)
-        .attr("y", height + margin.bottom - 10)
-        .text("Date");
-
-    // Add Y axis label
-    svgCumulative.append("text")
-        .attr("class", "axis-label")
-        .attr("text-anchor", "middle")
-        .attr("transform", "rotate(-90)")
-        .attr("x", -height / 2)
-        .attr("y", -margin.left + 15)
-        .text("Cumulative Number of Disappearances");
-
-    // Create the area generator
-    const cumulativeArea = d3.area()
-        .x(d => xCumulative(d.date))
+    // Create area generator
+    const areaGenerator = d3.area()
+        .x(d => xScale(d.date))
         .y0(height)
-        .y1(d => yCumulative(d.cumulativeCount));
+        .y1(d => yScale(d.cumulativeCount));
 
-    // Add areas for each facility
-    facilities.forEach((facility, index) => {
-        svgCumulative.append("path")
+    // Plot the data
+    facilities.forEach(facility => {
+        console.log(`Plotting facility: ${facility.facility}`); // Debugging: Log facility being plotted
+
+        svg.append("path")
             .datum(facility.cumulativeData)
-            .attr("class", "area")
-            .attr("d", cumulativeArea)
+            .attr("d", areaGenerator)
             .style("fill", colorScale(facility.facility))
             .style("opacity", 0.6);
-
-        // Add a legend for each facility
-        svgCumulative.append("text")
-            .attr("x", width + 10)
-            .attr("y", 20 + index * 20)
-            .attr("class", "legend")
-            .style("fill", colorScale(facility.facility))
-            .text(facility.facility);
     });
 });
