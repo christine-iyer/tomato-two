@@ -114,7 +114,7 @@
 // createFragments();
 
 /// Set the dimensions and margins of the graph
-const margin = { top: 40, right: 150, bottom: 50, left: 50 };
+const margin = { top: 60, right: 150, bottom: 50, left: 50 };
 const width = 800 - margin.left - margin.right;
 const height = 400 - margin.top - margin.bottom;
 
@@ -125,7 +125,6 @@ const svg = d3.select("#chart")
     .attr("height", height + margin.top + margin.bottom)
     .append("g")
     .attr("transform", `translate(${margin.left},${margin.top})`);
-
 // Add title
 svg.append("text")
     .attr("class", "title")
@@ -144,22 +143,22 @@ d3.csv("newMissing.csv").then(data => {
 
     // Filter and process the data
     const validData = data
-        .filter(d => d["Facility"] && d["DataDisappeared"]) // Ensure required fields are present
+        .filter(d => d["StateResidence"] && d["DateDisappeared"]) // Ensure required fields are present
         .map(d => ({
-            facility: d["Facility"],
-            date: dateParser(d["DataDisappeared"]),
+            state: d["StateResidence"],
+            date: dateParser(d["DateDisappeared"]),
         }))
         .filter(d => d.date); // Ensure valid dates
 
     console.log("Valid data:", validData); // Debugging: Log valid data
 
-    // Group data by facility and date
-    const groupedData = d3.group(validData, d => d.facility);
+    // Group data by state and date
+    const groupedData = d3.group(validData, d => d.state);
 
     console.log("Grouped data:", groupedData); // Debugging: Log grouped data
 
     // Prepare data for plotting
-    const facilities = Array.from(groupedData, ([facility, records]) => {
+    const facilities = Array.from(groupedData, ([state, records]) => {
         const dateCounts = d3.rollup(
             records,
             v => v.length,
@@ -176,42 +175,98 @@ d3.csv("newMissing.csv").then(data => {
                 cumulativeCount: arr.slice(0, i + 1).reduce((sum, curr) => sum + curr.count, 0),
             }));
 
-        console.log(`Cumulative data for ${facility}:`, cumulativeData); // Debugging: Log cumulative data
+        console.log(`Cumulative data for ${state}:`, cumulativeData); // Debugging: Log cumulative data
 
-        return { facility, cumulativeData };
+        return { state, cumulativeData };
     });
 
     console.log("Facilities data:", facilities); // Debugging: Log facilities data
 
+    // // Create scales
+    // const xScale = d3.scaleTime()
+    //     .domain([
+    //         d3.min(facilities, f => d3.min(f.cumulativeData, d => d.date)),
+    //         d3.max(facilities, f => d3.max(f.cumulativeData, d => d.date)),
+    //     ])
+    //     .range([0, width]);
+
+    // const yScale = d3.scaleLinear()
+    //     .domain([0, d3.max(facilities, f => d3.max(f.cumulativeData, d => d.cumulativeCount))])
+    //     .range([height, 0]);
+
+    // console.log("xScale domain:", xScale.domain()); // Debugging: Log xScale domain
+    // console.log("yScale domain:", yScale.domain()); // Debugging: Log yScale domain
+
+    // // Create area generator
+    // const areaGenerator = d3.area()
+    //     .x(d => xScale(d.date))
+    //     .y0(height)
+    //     .y1(d => yScale(d.cumulativeCount));
     // Create scales
-    const xScale = d3.scaleTime()
-        .domain([
-            d3.min(facilities, f => d3.min(f.cumulativeData, d => d.date)),
-            d3.max(facilities, f => d3.max(f.cumulativeData, d => d.date)),
-        ])
-        .range([0, width]);
+const xScale = d3.scaleTime()
+.domain([
+    d3.min(facilities, f => d3.min(f.cumulativeData, d => d.date)),
+    d3.max(facilities, f => d3.max(f.cumulativeData, d => d.date)),
+])
+.range([0, width]);
 
-    const yScale = d3.scaleLinear()
-        .domain([0, d3.max(facilities, f => d3.max(f.cumulativeData, d => d.cumulativeCount))])
-        .range([height, 0]);
+const yScale = d3.scaleLinear()
+.domain([0, -d3.max(facilities, f => d3.max(f.cumulativeData, d => d.cumulativeCount))]) // Invert the Y-axis
+.range([0, height]); // Keep the range the same
 
-    console.log("xScale domain:", xScale.domain()); // Debugging: Log xScale domain
-    console.log("yScale domain:", yScale.domain()); // Debugging: Log yScale domain
+console.log("xScale domain:", xScale.domain()); // Debugging: Log xScale domain
+console.log("yScale domain:", yScale.domain()); // Debugging: Log yScale domain
 
-    // Create area generator
-    const areaGenerator = d3.area()
-        .x(d => xScale(d.date))
-        .y0(height)
-        .y1(d => yScale(d.cumulativeCount));
+// Create area generator
+const areaGenerator = d3.area()
+.x(d => xScale(d.date))
+.y0(0) // Baseline at 0
+.y1(d => yScale(-d.cumulativeCount)); // Use negative cumulative count
+
+// Add X axis (at the top of the graph)
+svg.append("g")
+    .attr("transform", `translate(0, 0)`) // Position at the top of the graph
+    .call(d3.axisTop(xScale)) // Use d3.axisTop for the top axis
+    .selectAll("text") // Rotate text for better readability
+    .style("text-anchor", "end")
+    .attr("dx", ".8em")
+    .attr("dy", ".15em")
+    .attr("transform", "rotate(45)");
+
+// Add Y axis
+svg.append("g")
+.call(d3.axisLeft(yScale));    
 
     // Plot the data
-    facilities.forEach(facility => {
-        console.log(`Plotting facility: ${facility.facility}`); // Debugging: Log facility being plotted
+    facilities.forEach(state => {
+        console.log(`Plotting state: ${state.state}`); // Debugging: Log state being plotted
 
         svg.append("path")
-            .datum(facility.cumulativeData)
+            .datum(state.cumulativeData)
             .attr("d", areaGenerator)
-            .style("fill", colorScale(facility.facility))
+            .style("fill", colorScale(state.state))
             .style("opacity", 0.6);
     });
+    // Add a legend
+const legend = svg.append("g")
+.attr("transform", `translate(${width + 20}, 0)`); // Position the legend to the right of the chart
+
+facilities.forEach((state, index) => {
+// Add a colored rectangle for each state
+legend.append("rect")
+    .attr("x", 0)
+    .attr("y", index * 20) // Space out the legend items
+    .attr("width", 15)
+    .attr("height", 15)
+    .style("fill", colorScale(state.state));
+
+// Add the state name next to the rectangle
+legend.append("text")
+    .attr("x", 20) // Position the text to the right of the rectangle
+    .attr("y", index * 20 + 12) // Align text with the rectangle
+    .style("font-size", "12px")
+    .style("font-family", "Arial, sans-serif")
+    .text(state.state);
+});
+    
 });
